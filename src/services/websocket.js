@@ -1,347 +1,149 @@
-// src/hooks/useWebVoiceChat.js - PRODUCTION VOICE WEBSOCKET
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useAuthStore } from '../store/authStore';
-
-export function useWebVoiceChat() {
-  const token = useAuthStore(state => state.token);
-  const user = useAuthStore(state => state.user);
-  
-  const [isConnected, setIsConnected] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [error, setError] = useState(null);
-  const [phoenixState, setPhoenixState] = useState('idle'); // idle, listening, thinking, speaking, alert
-
-  const wsRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const audioContextRef = useRef(null);
-  const audioQueueRef = useRef([]);
-  const isPlayingRef = useRef(false);
+// src/services/websocket.js - PRODUCTION WebSocket Manager
+class WebSocketManager {
+  constructor() {
+    this.ws = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 3000;
+    this.listeners = new Map();
+    this.isConnecting = false;
+    this.userId = null;
+    this.token = null;
+  }
 
   /**
-   * Connect to Phoenix voice WebSocket
+   * Connect to main WebSocket (not voice)
    */
-  const connect = useCallback(() => {
-    if (!token || !user) {
-      setError('Not authenticated');
+  connect(userId, token) {
+    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
       return;
     }
 
+    this.userId = userId;
+    this.token = token;
+    this.isConnecting = true;
+
+    const wsUrl = process.env.REACT_APP_WS_URL || 'wss://pal-backend-production.up.railway.app/ws';
+
     try {
-      const wsUrl = process.env.REACT_APP_VOICE_WS_URL || 
-                    'wss://pal-backend-production.up.railway.app/ws/voice';
-      
-      const ws = new WebSocket(`${wsUrl}?userId=${user._id}&token=${token}`);
+      this.ws = new WebSocket(`${wsUrl}?userId=${userId}&token=${token}`);
 
-      ws.onopen = () => {
-        console.log('🎤 Voice WebSocket connected');
-        setIsConnected(true);
-        setError(null);
-        setPhoenixState('idle');
+      this.ws.onopen = () => {
+        console.log('✅ WebSocket connected');
+        this.isConnecting = false;
+        this.reconnectAttempts = 0;
+        this.emit('connected', { userId });
       };
 
-      ws.onmessage = async (event) => {
-        const data = JSON.parse(event.data);
-        await handleServerMessage(data);
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📨 WebSocket message:', data);
+          
+          // Emit to all listeners for this event type
+          this.emit(data.type, data);
+        } catch (err) {
+          console.error('❌ WebSocket message parse error:', err);
+        }
       };
 
-      ws.onerror = (err) => {
-        console.error('Voice WebSocket error:', err);
-        setError('Connection error');
-        setPhoenixState('idle');
+      this.ws.onerror = (error) => {
+        console.error('❌ WebSocket error:', error);
+        this.isConnecting = false;
+        this.emit('error', error);
       };
 
-      ws.onclose = () => {
-        console.log('🔇 Voice WebSocket disconnected');
-        setIsConnected(false);
-        setPhoenixState('idle');
+      this.ws.onclose = () => {
+        console.log('🔌 WebSocket disconnected');
+        this.isConnecting = false;
+        this.emit('disconnected', {});
         
-        // Auto-reconnect after 3 seconds
-        setTimeout(() => {
-          if (token && user) {
-            connect();
-          }
-        }, 3000);
+        // Auto-reconnect
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          console.log(`🔄 Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+          setTimeout(() => {
+            if (this.userId && this.token) {
+              this.connect(this.userId, this.token);
+            }
+          }, this.reconnectDelay);
+        }
       };
-
-      wsRef.current = ws;
 
     } catch (err) {
-      console.error('Voice connection error:', err);
-      setError(err.message);
+      console.error('❌ WebSocket connection error:', err);
+      this.isConnecting = false;
     }
-  }, [token, user]);
+  }
 
   /**
-   * Handle messages from server
+   * Send message through WebSocket
    */
-  const handleServerMessage = async (data) => {
-    switch (data.type) {
-      case 'session_ready':
-        console.log('✅ Voice session ready');
-        setPhoenixState('idle');
-        break;
+  send(data) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    } else {
+      console.warn('⚠️ WebSocket not connected, cannot send:', data);
+    }
+  }
 
-      case 'audio':
-        // Receive audio from Phoenix
-        audioQueueRef.current.push(data.audio);
-        if (!isPlayingRef.current) {
-          await playAudioQueue();
+  /**
+   * Subscribe to event type
+   */
+  on(eventType, callback) {
+    if (!this.listeners.has(eventType)) {
+      this.listeners.set(eventType, []);
+    }
+    this.listeners.get(eventType).push(callback);
+
+    // Return unsubscribe function
+    return () => {
+      const callbacks = this.listeners.get(eventType);
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
         }
-        break;
-
-      case 'transcript':
-        // Phoenix's spoken response transcript
-        setTranscript(data.text);
-        break;
-
-      case 'speech_started':
-        setIsSpeaking(true);
-        setPhoenixState('speaking');
-        break;
-
-      case 'speech_ended':
-        setIsSpeaking(false);
-        setPhoenixState('idle');
-        break;
-
-      case 'response_complete':
-        setIsSpeaking(false);
-        setTranscript('');
-        setPhoenixState('idle');
-        break;
-
-      case 'intervention':
-        // Proactive alert from Phoenix
-        setPhoenixState('alert');
-        setTranscript(data.message);
-        break;
-
-      case 'error':
-        setError(data.message);
-        setPhoenixState('idle');
-        break;
-    }
-  };
-
-  /**
-   * Start recording audio
-   */
-  const startRecording = async () => {
-    if (!isConnected) {
-      setError('Not connected to voice server');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 24000
-        } 
-      });
-
-      // Initialize audio context
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
-          sampleRate: 24000
-        });
       }
+    };
+  }
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 24000
+  /**
+   * Emit event to listeners
+   */
+  emit(eventType, data) {
+    const callbacks = this.listeners.get(eventType);
+    if (callbacks) {
+      callbacks.forEach(callback => {
+        try {
+          callback(data);
+        } catch (err) {
+          console.error(`❌ Error in ${eventType} listener:`, err);
+        }
       });
-
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        await sendAudioToServer(audioBlob);
-        
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start(100); // Collect data every 100ms
-      mediaRecorderRef.current = mediaRecorder;
-      
-      setIsRecording(true);
-      setPhoenixState('listening');
-      setError(null);
-
-      console.log('🎤 Recording started');
-
-    } catch (err) {
-      console.error('Recording error:', err);
-      setError('Microphone access denied');
     }
-  };
+  }
 
   /**
-   * Stop recording audio
+   * Check if connected
    */
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setPhoenixState('thinking');
-      console.log('🛑 Recording stopped');
-    }
-  };
+  isConnected() {
+    return this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
 
   /**
-   * Send audio to server
+   * Disconnect
    */
-  const sendAudioToServer = async (audioBlob) => {
-    try {
-      // Convert blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(audioBlob);
-      reader.onloadend = () => {
-        const base64Audio = reader.result.split(',')[1];
-        
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: 'audio',
-            audio: base64Audio
-          }));
-
-          // Signal end of audio
-          wsRef.current.send(JSON.stringify({
-            type: 'audio_end'
-          }));
-        }
-      };
-    } catch (err) {
-      console.error('Error sending audio:', err);
-      setError('Failed to send audio');
+  disconnect() {
+    if (this.ws) {
+      this.reconnectAttempts = this.maxReconnectAttempts; // Prevent reconnection
+      this.ws.close();
+      this.ws = null;
     }
-  };
-
-  /**
-   * Play audio queue from Phoenix
-   */
-  const playAudioQueue = async () => {
-    if (audioQueueRef.current.length === 0) {
-      isPlayingRef.current = false;
-      return;
-    }
-
-    isPlayingRef.current = true;
-
-    try {
-      const base64Audio = audioQueueRef.current.shift();
-      
-      // Decode base64 to audio
-      const audioData = atob(base64Audio);
-      const arrayBuffer = new ArrayBuffer(audioData.length);
-      const view = new Uint8Array(arrayBuffer);
-      
-      for (let i = 0; i < audioData.length; i++) {
-        view[i] = audioData.charCodeAt(i);
-      }
-
-      // Decode and play
-      const audioContext = audioContextRef.current || new AudioContext();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      
-      source.onended = () => {
-        // Play next in queue
-        playAudioQueue();
-      };
-
-      source.start(0);
-
-    } catch (err) {
-      console.error('Audio playback error:', err);
-      isPlayingRef.current = false;
-    }
-  };
-
-  /**
-   * Interrupt Phoenix (cancel current response)
-   */
-  const interrupt = () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'interrupt'
-      }));
-      
-      // Clear audio queue
-      audioQueueRef.current = [];
-      isPlayingRef.current = false;
-      setIsSpeaking(false);
-      setPhoenixState('idle');
-    }
-  };
-
-  /**
-   * Disconnect voice WebSocket
-   */
-  const disconnect = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    setIsConnected(false);
-    setIsRecording(false);
-    setIsSpeaking(false);
-    setPhoenixState('idle');
-  };
-
-  /**
-   * Auto-connect on mount
-   */
-  useEffect(() => {
-    connect();
-    return () => disconnect();
-  }, [connect]);
-
-  /**
-   * Request notification permissions
-   */
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  return {
-    isConnected,
-    isRecording,
-    isSpeaking,
-    phoenixState,
-    transcript,
-    error,
-    startRecording,
-    stopRecording,
-    interrupt,
-    disconnect
-  };
+    this.listeners.clear();
+  }
 }
+
+// Singleton instance
+const wsManager = new WebSocketManager();
+export default wsManager;
