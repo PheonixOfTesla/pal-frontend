@@ -9,6 +9,8 @@ import PalPage from './pages/PalPage';
 import JarvisPage from './pages/JarvisPage';
 import MercuryPage from './pages/MercuryPage';
 import VenusPage from './pages/VenusPage';
+import EarthPage from './pages/EarthPage';  // ADD THIS
+import MarsPage from './pages/MarsPage';    // ADD THIS
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -51,6 +53,19 @@ function App() {
         <Route path="/venus" element={
           <ProtectedRoute>
             <VenusPage />
+          </ProtectedRoute>
+        } />
+        
+        {/* ADD THESE TWO ROUTES */}
+        <Route path="/earth" element={
+          <ProtectedRoute>
+            <EarthPage />
+          </ProtectedRoute>
+        } />
+        
+        <Route path="/mars" element={
+          <ProtectedRoute>
+            <MarsPage />
           </ProtectedRoute>
         } />
         
