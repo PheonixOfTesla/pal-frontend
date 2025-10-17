@@ -1,10 +1,10 @@
-// src/pages/JarvisPage.jsx - TRUE JARVIS INTERFACE
+// src/pages/JarvisPage.jsx - USES JARVIS CONTEXT
 import React, { useState, useEffect } from 'react';
-import { Flame, Mic, X } from 'lucide-react';
+import { Flame, Mic } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useDataStore } from '../store/dataStore';
 import { intelligenceService } from '../services/api';
-import { useWebVoiceChat } from '../hooks/useWebVoiceChat';
+import { useJarvis } from '../context/JarvisContext';
 import PhoenixAvatar from '../components/voice/PhoenixAvatar';
 import WaveformVisualizer from '../components/voice/WaveformVisualizer';
 import DataOverlay from '../components/jarvis/DataOverlay';
@@ -13,20 +13,15 @@ import VoiceCommandRouter from '../components/jarvis/VoiceCommandRouter';
 export default function JarvisPage() {
   const user = useAuthStore(state => state.user);
   const { intelligenceData, setIntelligenceData, setLoading } = useDataStore();
-  
-  const {
-    isConnected,
-    isRecording,
-    isSpeaking,
-    phoenixState,
-    transcript,
-    error,
-    startRecording,
-    stopRecording
-  } = useWebVoiceChat();
+  const { voiceChat, isActive, activateJarvis } = useJarvis();
 
   const [activeOverlay, setActiveOverlay] = useState(null);
   const [overlayData, setOverlayData] = useState(null);
+
+  // Auto-activate JARVIS when entering this page
+  useEffect(() => {
+    activateJarvis();
+  }, [activateJarvis]);
 
   // Fetch intelligence data on mount
   useEffect(() => {
@@ -49,7 +44,16 @@ export default function JarvisPage() {
     fetchData();
   }, [user, setIntelligenceData, setLoading]);
 
-  // Handle voice command events
+  // Extract voice chat values safely
+  const isConnected = voiceChat?.isConnected || false;
+  const isRecording = voiceChat?.isRecording || false;
+  const isSpeaking = voiceChat?.isSpeaking || false;
+  const phoenixState = voiceChat?.phoenixState || 'idle';
+  const transcript = voiceChat?.transcript || '';
+  const error = voiceChat?.error || null;
+  const startRecording = voiceChat?.startRecording || (() => {});
+  const stopRecording = voiceChat?.stopRecording || (() => {});
+
   const handleShowOverlay = (overlayType, data) => {
     setActiveOverlay(overlayType);
     setOverlayData(data);
@@ -145,14 +149,15 @@ export default function JarvisPage() {
           marginBottom: '40px',
           maxWidth: '600px'
         }}>
-          {phoenixState === 'idle' && 'Ask me anything about your health, training, schedule, goals, or finances.'}
+          {!isActive && 'Voice features disabled. Enable in settings.'}
+          {isActive && phoenixState === 'idle' && 'Ask me anything about your health, training, schedule, goals, or finances.'}
           {phoenixState === 'listening' && 'I\'m listening...'}
           {phoenixState === 'thinking' && 'Analyzing your data...'}
           {phoenixState === 'speaking' && 'Let me share what I found...'}
         </p>
 
         {/* Waveform Visualizer */}
-        {(isRecording || isSpeaking) && (
+        {isActive && (isRecording || isSpeaking) && (
           <div style={{ width: '100%', maxWidth: '600px', marginBottom: '40px' }}>
             <WaveformVisualizer isActive={isRecording || isSpeaking} />
           </div>
@@ -215,21 +220,21 @@ export default function JarvisPage() {
           onMouseUp={stopRecording}
           onTouchStart={startRecording}
           onTouchEnd={stopRecording}
-          disabled={!isConnected}
+          disabled={!isActive || !isConnected}
           style={{
             width: '120px',
             height: '120px',
             borderRadius: '50%',
             background: isRecording 
               ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-              : !isConnected
+              : !isActive || !isConnected
               ? 'rgba(100,116,139,0.3)'
               : 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
             border: 'none',
             boxShadow: isRecording 
               ? '0 0 60px rgba(239,68,68,0.8), 0 0 100px rgba(239,68,68,0.4)'
               : '0 8px 32px rgba(6,182,212,0.4)',
-            cursor: !isConnected ? 'not-allowed' : 'pointer',
+            cursor: !isActive || !isConnected ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -260,7 +265,7 @@ export default function JarvisPage() {
             </>
           )}
           
-          <Mic size={48} color={!isConnected ? '#64748b' : '#fff'} />
+          <Mic size={48} color={!isActive || !isConnected ? '#64748b' : '#fff'} />
         </button>
 
         <p style={{
@@ -269,7 +274,7 @@ export default function JarvisPage() {
           color: 'rgba(6,182,212,0.6)',
           textAlign: 'center'
         }}>
-          {isRecording ? 'Release to send' : 'Hold to talk to Phoenix'}
+          {!isActive ? 'Voice disabled' : isRecording ? 'Release to send' : 'Hold to talk to Phoenix'}
         </p>
       </div>
 
@@ -307,7 +312,7 @@ export default function JarvisPage() {
           background: isConnected ? '#10b981' : '#ef4444',
           animation: isConnected ? 'pulse 2s infinite' : 'none'
         }} />
-        {isConnected ? 'PHOENIX ONLINE' : 'CONNECTING...'}
+        {isConnected ? 'PHOENIX ONLINE' : isActive ? 'CONNECTING...' : 'VOICE DISABLED'}
       </div>
 
       {/* Time Display */}
