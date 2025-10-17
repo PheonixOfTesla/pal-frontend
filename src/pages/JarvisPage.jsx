@@ -1,73 +1,102 @@
-// src/pages/JarvisPage.jsx - USES JARVIS CONTEXT
 import React, { useState, useEffect } from 'react';
-import { Flame, Mic } from 'lucide-react';
+import { MessageSquare, Mic } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useDataStore } from '../store/dataStore';
-import { intelligenceService } from '../services/api';
-import { useJarvis } from '../context/JarvisContext';
-import PhoenixAvatar from '../components/voice/PhoenixAvatar';
-import WaveformVisualizer from '../components/voice/WaveformVisualizer';
-import DataOverlay from '../components/jarvis/DataOverlay';
-import VoiceCommandRouter from '../components/jarvis/VoiceCommandRouter';
+import { phoenixService } from '../services/phoenixService';
+import PhoenixOrb from '../components/phoenix/PhoenixOrb';
+import PhoenixChatDrawer from '../components/phoenix/PhoenixChatDrawer';
+import PhoenixResultsOverlay from '../components/phoenix/PhoenixResultsOverlay';
 
 export default function JarvisPage() {
   const user = useAuthStore(state => state.user);
-  const { intelligenceData, setIntelligenceData, setLoading } = useDataStore();
-  const { voiceChat, isActive, activateJarvis } = useJarvis();
+  const { setLoading } = useDataStore();
 
-  const [activeOverlay, setActiveOverlay] = useState(null);
-  const [overlayData, setOverlayData] = useState(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [orbState, setOrbState] = useState('idle');
+  const [statusText, setStatusText] = useState('READY');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [resultsData, setResultsData] = useState(null);
+  const [showResults, setShowResults] = useState(false);
 
-  // Auto-activate JARVIS when entering this page
+  // Update time every second
   useEffect(() => {
-    activateJarvis();
-  }, [activateJarvis]);
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  // Fetch intelligence data on mount
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!user?._id) return;
+  // Handle quick action from drawer
+  const handleQuickAction = async (actionType) => {
+    setIsDrawerOpen(false);
+    setOrbState('processing');
+    setStatusText('ANALYZING...');
+
+    try {
+      let response;
       
-      setLoading(true);
-      try {
-        const response = await intelligenceService.getHealthMetrics(user._id);
-        if (response.success) {
-          setIntelligenceData(response.data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch intelligence data:', error);
-      } finally {
-        setLoading(false);
+      switch (actionType) {
+        case 'recovery':
+          response = await phoenixService.getRecoveryStatus(user._id);
+          break;
+        case 'schedule':
+          response = await phoenixService.getTodaySchedule(user._id);
+          break;
+        case 'workout':
+          response = await phoenixService.getWorkoutReadiness(user._id);
+          break;
+        case 'sleep':
+          response = await phoenixService.getSleepAnalysis(user._id);
+          break;
+        default:
+          break;
       }
-    };
 
-    fetchData();
-  }, [user, setIntelligenceData, setLoading]);
-
-  // Extract voice chat values safely
-  const isConnected = voiceChat?.isConnected || false;
-  const isRecording = voiceChat?.isRecording || false;
-  const isSpeaking = voiceChat?.isSpeaking || false;
-  const phoenixState = voiceChat?.phoenixState || 'idle';
-  const transcript = voiceChat?.transcript || '';
-  const error = voiceChat?.error || null;
-  const startRecording = voiceChat?.startRecording || (() => {});
-  const stopRecording = voiceChat?.stopRecording || (() => {});
-
-  const handleShowOverlay = (overlayType, data) => {
-    setActiveOverlay(overlayType);
-    setOverlayData(data);
+      if (response && response.success) {
+        // Format data for results overlay
+        setResultsData(phoenixService.formatResultsData(response.data, actionType));
+        setShowResults(true);
+      }
+    } catch (error) {
+      console.error('Quick action error:', error);
+      setOrbState('alert');
+      setStatusText('ERROR');
+      setTimeout(() => {
+        setOrbState('idle');
+        setStatusText('READY');
+      }, 2000);
+    } finally {
+      if (orbState !== 'alert') {
+        setOrbState('idle');
+        setStatusText('READY');
+      }
+    }
   };
 
-  const handleCloseOverlay = () => {
-    setActiveOverlay(null);
-    setOverlayData(null);
+  // Handle message from chat drawer
+  const handleSendMessage = async (message) => {
+    try {
+      const response = await phoenixService.sendMessage(message, user._id);
+      return response.data?.message || 'Query processed.';
+    } catch (error) {
+      console.error('Message error:', error);
+      throw error;
+    }
+  };
+
+  const handleCloseResults = () => {
+    setShowResults(false);
+    setResultsData(null);
+  };
+
+  const toggleDrawer = () => {
+    setIsDrawerOpen(!isDrawerOpen);
   };
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#000',
+      background: 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%)',
       position: 'relative',
       overflow: 'hidden',
       display: 'flex',
@@ -78,37 +107,44 @@ export default function JarvisPage() {
       <div style={{
         position: 'absolute',
         inset: 0,
-        opacity: 0.1,
-        backgroundImage: 'linear-gradient(cyan 1px, transparent 1px), linear-gradient(90deg, cyan 1px, transparent 1px)',
+        backgroundImage: 'linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px)',
         backgroundSize: '50px 50px',
+        pointerEvents: 'none',
         animation: 'gridMove 20s linear infinite'
       }} />
 
-      {/* Radial glow from center */}
+      {/* Radial glow from orb */}
       <div style={{
         position: 'absolute',
         top: '50%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
-        width: '800px',
-        height: '800px',
-        background: `radial-gradient(circle, ${
-          phoenixState === 'alert' ? 'rgba(239,68,68,0.2)' :
-          phoenixState === 'speaking' ? 'rgba(16,185,129,0.2)' :
-          'rgba(6,182,212,0.2)'
-        } 0%, transparent 70%)`,
+        width: '600px',
+        height: '600px',
+        background: orbState === 'alert' 
+          ? 'radial-gradient(circle, rgba(255,0,0,0.15) 0%, transparent 70%)'
+          : orbState === 'processing'
+          ? 'radial-gradient(circle, rgba(255,165,0,0.15) 0%, transparent 70%)'
+          : 'radial-gradient(circle, rgba(0,212,255,0.1) 0%, transparent 70%)',
         pointerEvents: 'none',
         transition: 'all 0.5s ease'
       }} />
 
-      {/* Voice Command Router */}
-      <VoiceCommandRouter 
-        transcript={transcript}
-        intelligenceData={intelligenceData}
-        onShowOverlay={handleShowOverlay}
-      />
+      {/* Time display */}
+      <div style={{
+        position: 'absolute',
+        top: '20px',
+        right: '30px',
+        fontSize: '14px',
+        color: '#00d4ff',
+        letterSpacing: '2px',
+        fontFamily: "'Courier New', monospace",
+        zIndex: 10
+      }}>
+        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+      </div>
 
-      {/* Main Content - Phoenix Avatar */}
+      {/* Main Content */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -116,232 +152,147 @@ export default function JarvisPage() {
         alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
-        zIndex: 10,
+        zIndex: 1,
         padding: '40px'
       }}>
         
-        {/* Phoenix Avatar */}
-        <div style={{ marginBottom: '40px' }}>
-          <PhoenixAvatar state={phoenixState} />
+        {/* Status */}
+        <div style={{
+          textAlign: 'center',
+          marginBottom: '20px'
+        }}>
+          <div style={{
+            fontSize: '14px',
+            textTransform: 'uppercase',
+            letterSpacing: '3px',
+            color: orbState === 'processing' 
+              ? '#ffa500' 
+              : orbState === 'alert'
+              ? '#ff0000'
+              : '#00d4ff',
+            textShadow: orbState === 'processing'
+              ? '0 0 10px rgba(255,165,0,0.8)'
+              : orbState === 'alert'
+              ? '0 0 10px rgba(255,0,0,0.8)'
+              : '0 0 10px rgba(0,212,255,0.8)',
+            fontFamily: "'Courier New', monospace",
+            animation: orbState === 'processing' ? 'pulseText 1s ease-in-out infinite' : 'none'
+          }}>
+            {statusText}
+          </div>
         </div>
 
-        {/* Status Text */}
+        {/* Phoenix Orb */}
+        <div style={{ marginBottom: '40px' }}>
+          <PhoenixOrb state={orbState} size={200} />
+        </div>
+
+        {/* Greeting */}
         <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          color: '#06b6d4',
-          marginBottom: '16px',
-          textShadow: '0 0 20px rgba(6,182,212,0.6)',
-          textAlign: 'center'
+          fontSize: '36px',
+          fontWeight: '300',
+          marginBottom: '15px',
+          textAlign: 'center',
+          color: '#00d4ff',
+          textShadow: '0 0 20px rgba(0,212,255,0.6)',
+          letterSpacing: '2px',
+          fontFamily: "'Courier New', monospace"
         }}>
-          {phoenixState === 'listening' && 'Listening...'}
-          {phoenixState === 'thinking' && 'Processing...'}
-          {phoenixState === 'speaking' && 'Phoenix Speaking...'}
-          {phoenixState === 'alert' && 'Alert!'}
-          {phoenixState === 'idle' && `Hello, ${user?.name?.split(' ')[0] || 'there'}`}
+          Hello, {user?.name?.split(' ')[0] || 'Phoenix'}
         </h1>
 
         {/* Subtitle */}
         <p style={{
-          fontSize: '1rem',
-          color: 'rgba(6,182,212,0.7)',
+          color: '#8b9dc3',
+          fontSize: '13px',
           textAlign: 'center',
-          marginBottom: '40px',
-          maxWidth: '600px'
+          maxWidth: '600px',
+          lineHeight: 1.6,
+          fontFamily: "'Courier New', monospace",
+          marginBottom: '40px'
         }}>
-          {!isActive && 'Voice features disabled. Enable in settings.'}
-          {isActive && phoenixState === 'idle' && 'Ask me anything about your health, training, schedule, goals, or finances.'}
-          {phoenixState === 'listening' && 'I\'m listening...'}
-          {phoenixState === 'thinking' && 'Analyzing your data...'}
-          {phoenixState === 'speaking' && 'Let me share what I found...'}
+          Ask me anything about your health, training, schedule, goals, or finances.
         </p>
 
-        {/* Waveform Visualizer */}
-        {isActive && (isRecording || isSpeaking) && (
-          <div style={{ width: '100%', maxWidth: '600px', marginBottom: '40px' }}>
-            <WaveformVisualizer isActive={isRecording || isSpeaking} />
-          </div>
-        )}
-
-        {/* Transcript Display */}
-        {transcript && (
-          <div style={{
-            background: 'rgba(6,182,212,0.05)',
-            border: '1px solid rgba(6,182,212,0.3)',
-            borderRadius: '12px',
-            padding: '24px',
-            maxWidth: '700px',
-            width: '100%',
-            marginBottom: '40px',
-            animation: 'fadeIn 0.3s ease-out'
-          }}>
-            <div style={{
-              fontSize: '14px',
-              color: '#06b6d4',
-              fontWeight: 600,
-              marginBottom: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}>
-              <Flame size={16} />
-              Phoenix:
-            </div>
-            <div style={{
-              fontSize: '16px',
-              color: '#fff',
-              lineHeight: 1.6
-            }}>
-              {transcript}
-            </div>
-          </div>
-        )}
-
-        {/* Error Display */}
-        {error && (
-          <div style={{
-            background: 'rgba(239,68,68,0.1)',
-            border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: '8px',
-            padding: '16px',
-            maxWidth: '600px',
-            width: '100%',
-            marginBottom: '24px',
-            color: '#ef4444',
-            textAlign: 'center'
-          }}>
-            {error}
-          </div>
-        )}
-
-        {/* Voice Button */}
+        {/* Voice Button (disabled for now) */}
         <button
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onTouchStart={startRecording}
-          onTouchEnd={stopRecording}
-          disabled={!isActive || !isConnected}
+          disabled
           style={{
-            width: '120px',
-            height: '120px',
-            borderRadius: '50%',
-            background: isRecording 
-              ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-              : !isActive || !isConnected
-              ? 'rgba(100,116,139,0.3)'
-              : 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
-            border: 'none',
-            boxShadow: isRecording 
-              ? '0 0 60px rgba(239,68,68,0.8), 0 0 100px rgba(239,68,68,0.4)'
-              : '0 8px 32px rgba(6,182,212,0.4)',
-            cursor: !isActive || !isConnected ? 'not-allowed' : 'pointer',
+            marginTop: '20px',
+            padding: '16px 40px',
+            background: 'rgba(0,212,255,0.1)',
+            border: '2px solid rgba(0,212,255,0.3)',
+            color: '#00d4ff',
+            fontSize: '14px',
+            textTransform: 'uppercase',
+            letterSpacing: '2px',
+            cursor: 'not-allowed',
+            position: 'relative',
+            overflow: 'hidden',
+            opacity: 0.4,
+            fontFamily: "'Courier New', monospace",
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.3s ease',
-            transform: isRecording ? 'scale(1.1)' : 'scale(1)',
-            position: 'relative'
+            gap: '10px'
           }}
         >
-          {/* Ripple effect when recording */}
-          {isRecording && (
-            <>
-              <div style={{
-                position: 'absolute',
-                inset: -10,
-                borderRadius: '50%',
-                border: '3px solid #ef4444',
-                opacity: 0.6,
-                animation: 'ripple 1.5s infinite'
-              }} />
-              <div style={{
-                position: 'absolute',
-                inset: -20,
-                borderRadius: '50%',
-                border: '2px solid #ef4444',
-                opacity: 0.4,
-                animation: 'ripple 1.5s infinite 0.5s'
-              }} />
-            </>
-          )}
-          
-          <Mic size={48} color={!isActive || !isConnected ? '#64748b' : '#fff'} />
+          <Mic size={18} />
+          Hold to talk to Phoenix
         </button>
-
-        <p style={{
-          marginTop: '24px',
-          fontSize: '14px',
-          color: 'rgba(6,182,212,0.6)',
-          textAlign: 'center'
-        }}>
-          {!isActive ? 'Voice disabled' : isRecording ? 'Release to send' : 'Hold to talk to Phoenix'}
-        </p>
       </div>
 
-      {/* Data Overlay */}
-      {activeOverlay && (
-        <DataOverlay
-          type={activeOverlay}
-          data={overlayData}
-          onClose={handleCloseOverlay}
-        />
-      )}
-
-      {/* Connection Status */}
-      <div style={{
-        position: 'fixed',
-        bottom: '24px',
-        right: '24px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '12px 20px',
-        background: 'rgba(0,0,0,0.8)',
-        backdropFilter: 'blur(10px)',
-        border: `1px solid ${isConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
-        borderRadius: '24px',
-        fontSize: '12px',
-        color: isConnected ? '#10b981' : '#ef4444',
-        fontFamily: 'monospace',
-        zIndex: 50
-      }}>
-        <div style={{
-          width: '8px',
-          height: '8px',
+      {/* Chat Toggle Button */}
+      <button
+        onClick={toggleDrawer}
+        style={{
+          position: 'fixed',
+          bottom: '30px',
+          right: '30px',
+          width: '60px',
+          height: '60px',
+          background: 'linear-gradient(135deg, #00d4ff 0%, #00ffc8 100%)',
+          border: 'none',
           borderRadius: '50%',
-          background: isConnected ? '#10b981' : '#ef4444',
-          animation: isConnected ? 'pulse 2s infinite' : 'none'
-        }} />
-        {isConnected ? 'PHOENIX ONLINE' : isActive ? 'CONNECTING...' : 'VOICE DISABLED'}
-      </div>
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 5px 30px rgba(0,212,255,0.5)',
+          zIndex: 1000,
+          transition: 'all 0.3s',
+          color: '#0a0e27'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.1)';
+          e.currentTarget.style.boxShadow = '0 5px 40px rgba(0,212,255,0.8)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.boxShadow = '0 5px 30px rgba(0,212,255,0.5)';
+        }}
+      >
+        <MessageSquare size={28} />
+      </button>
 
-      {/* Time Display */}
-      <div style={{
-        position: 'fixed',
-        top: '24px',
-        right: '24px',
-        fontSize: '12px',
-        color: 'rgba(6,182,212,0.6)',
-        fontFamily: 'monospace',
-        zIndex: 50
-      }}>
-        {new Date().toLocaleTimeString()}
-      </div>
+      {/* Phoenix Chat Drawer */}
+      <PhoenixChatDrawer
+        isOpen={isDrawerOpen}
+        onClose={toggleDrawer}
+        onQuickAction={handleQuickAction}
+        onSendMessage={handleSendMessage}
+      />
+
+      {/* Results Overlay */}
+      <PhoenixResultsOverlay
+        results={resultsData}
+        isVisible={showResults}
+        onClose={handleCloseResults}
+      />
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.7; transform: scale(1.05); }
-        }
-
-        @keyframes ripple {
-          0% { transform: scale(1); opacity: 0.8; }
-          100% { transform: scale(1.8); opacity: 0; }
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
+        @keyframes pulseText {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
 
         @keyframes gridMove {
