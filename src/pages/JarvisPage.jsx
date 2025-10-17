@@ -1,9 +1,11 @@
+// src/pages/JarvisPage.jsx - WITH WORKING VOICE CHAT
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Flame, ArrowLeft, Mic } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useDataStore } from '../store/dataStore';
 import { intelligenceService } from '../services/api';
+import VoiceChatPanel from '../components/voice/VoiceChatPanel';
 
 export default function JarvisPage() {
   const navigate = useNavigate();
@@ -11,7 +13,7 @@ export default function JarvisPage() {
   const { intelligenceData, setIntelligenceData, loading, setLoading } = useDataStore();
   
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [showVoiceChat, setShowVoiceChat] = useState(false);
 
   // Fetch data on mount
   useEffect(() => {
@@ -54,6 +56,11 @@ export default function JarvisPage() {
         backgroundImage: 'linear-gradient(cyan 1px, transparent 1px), linear-gradient(90deg, cyan 1px, transparent 1px)',
         backgroundSize: '50px 50px'
       }}></div>
+
+      {/* Voice Chat Overlay */}
+      {showVoiceChat && (
+        <VoiceChatPanel onClose={() => setShowVoiceChat(false)} />
+      )}
 
       {/* Header */}
       <div style={{
@@ -205,18 +212,18 @@ export default function JarvisPage() {
             <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/venus')}>
               Venus<br/>Training
             </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4' }}>
+            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/earth')}>
               Earth<br/>Schedule
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '12px', fontFamily: 'monospace', marginTop: '8px' }}>
-            <div style={{ textAlign: 'center', color: '#06b6d4' }}>
+            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/mars')}>
               Mars<br/>Goals
             </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4' }}>
+            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/jupiter')}>
               Jupiter<br/>Wealth
             </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4' }}>
+            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/saturn')}>
               Saturn<br/>Legacy
             </div>
           </div>
@@ -265,68 +272,43 @@ export default function JarvisPage() {
         </div>
       </div>
 
-      {/* Bottom Alert Bar */}
+      {/* Bottom Voice Button */}
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20 }}>
-        {isSpeaking ? (
-          <div style={{
-            background: 'linear-gradient(90deg, rgba(194,65,12,0.9) 0%, rgba(220,38,38,0.9) 100%)',
-            backdropFilter: 'blur(10px)',
-            borderTop: '1px solid rgba(249,115,22,0.5)',
-            padding: '24px',
-            animation: 'slideInFromBottom 0.3s'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'start', gap: '16px' }}>
-              <Flame size={32} color="#fb923c" style={{ animation: 'pulse 2s infinite' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ color: '#fed7aa', fontWeight: 'bold', fontSize: '18px', marginBottom: '8px' }}>
-                  {loading ? 'Loading Intelligence...' : 'System Ready'}
-                </div>
-                <div style={{ color: 'rgba(254,215,170,0.9)', fontSize: '14px', lineHeight: '1.5' }}>
-                  {loading ? 'Analyzing your health data...' : 
-                   intelligenceData?.insights || 'Phoenix AI is monitoring your vitals and performance.'}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{
-            background: 'rgba(0,0,0,0.8)',
-            backdropFilter: 'blur(10px)',
-            borderTop: '1px solid rgba(6,182,212,0.3)',
-            padding: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '16px'
-          }}>
-            <div style={{
-              width: '12px',
-              height: '12px',
+        <div style={{
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(10px)',
+          borderTop: '1px solid rgba(6,182,212,0.3)',
+          padding: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px'
+        }}>
+          <span style={{ color: '#06b6d4', fontSize: '14px', fontFamily: 'monospace' }}>
+            Talk to Phoenix
+          </span>
+          <button
+            onClick={() => setShowVoiceChat(true)}
+            style={{
+              padding: '12px',
               borderRadius: '50%',
-              background: isRecording ? '#ef4444' : '#06b6d4',
-              animation: isRecording ? 'pulse 1s infinite' : 'none'
-            }}></div>
-            <span style={{ color: '#06b6d4', fontSize: '14px', fontFamily: 'monospace' }}>
-              {isRecording ? 'LISTENING...' : 'Say "Phoenix" or tap microphone to activate'}
-            </span>
-            <button
-              style={{
-                padding: '12px',
-                borderRadius: '50%',
-                background: isRecording ? '#ef4444' : 'rgba(6,182,212,0.2)',
-                border: 'none',
-                cursor: 'pointer',
-                boxShadow: isRecording ? '0 0 20px rgba(239,68,68,0.5)' : 'none',
-                transition: 'all 0.2s'
-              }}
-              onMouseDown={() => setIsRecording(true)}
-              onMouseUp={() => setIsRecording(false)}
-              onMouseLeave={() => setIsRecording(false)}
-            >
-              <Mic size={20} color={isRecording ? '#fff' : '#06b6d4'} />
-            </button>
-          </div>
-        )}
+              background: 'rgba(6,182,212,0.2)',
+              border: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(6,182,212,0.4)';
+              e.currentTarget.style.transform = 'scale(1.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(6,182,212,0.2)';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+          >
+            <Mic size={20} color="#06b6d4" />
+          </button>
+        </div>
       </div>
 
       <style>{`
@@ -337,10 +319,6 @@ export default function JarvisPage() {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
-        }
-        @keyframes slideInFromBottom {
-          from { transform: translateY(100%); }
-          to { transform: translateY(0); }
         }
       `}</style>
     </div>
