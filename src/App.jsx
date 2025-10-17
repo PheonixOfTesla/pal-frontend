@@ -1,8 +1,9 @@
-// src/App.jsx - SINGLE PAGE APP WITH VOICE-DRIVEN OVERLAYS
+// src/App.jsx - WITH JARVIS CONTEXT
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import wsManager from './services/websocket';
+import { JarvisProvider } from './context/JarvisContext';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -11,6 +12,7 @@ import JarvisPage from './pages/JarvisPage';
 
 // Global Components
 import ProactiveAlert from './components/notifications/ProactiveAlert';
+import FloatingJarvis from './components/jarvis/FloatingJarvis';
 
 function ProtectedRoute({ children }) {
   const token = useAuthStore(state => state.token);
@@ -34,9 +36,7 @@ function App() {
         
         // Speak the alert
         if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(
-            `Alert: ${data.message}`
-          );
+          const utterance = new SpeechSynthesisUtterance(`Alert: ${data.message}`);
           utterance.rate = 1.0;
           utterance.pitch = 1.0;
           speechSynthesis.speak(utterance);
@@ -53,44 +53,48 @@ function App() {
   }, [user, token]);
 
   return (
-    <Router>
-      {/* Proactive Alert Overlay */}
-      {proactiveAlert && (
-        <ProactiveAlert
-          alert={proactiveAlert}
-          onAcknowledge={() => {
-            // Send acknowledgment to backend
-            wsManager.send({
-              type: 'intervention_acknowledged',
-              interventionId: proactiveAlert.interventionId
-            });
-            setProactiveAlert(null);
-          }}
-          onDismiss={() => setProactiveAlert(null)}
-        />
-      )}
+    <JarvisProvider>
+      <Router>
+        {/* Proactive Alert Overlay */}
+        {proactiveAlert && (
+          <ProactiveAlert
+            alert={proactiveAlert}
+            onAcknowledge={() => {
+              wsManager.send({
+                type: 'intervention_acknowledged',
+                interventionId: proactiveAlert.interventionId
+              });
+              setProactiveAlert(null);
+            }}
+            onDismiss={() => setProactiveAlert(null)}
+          />
+        )}
 
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/login" element={<LoginPage />} />
-        
-        {/* Protected Routes */}
-        <Route path="/" element={
-          <ProtectedRoute>
-            <PalPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/jarvis" element={
-          <ProtectedRoute>
-            <JarvisPage />
-          </ProtectedRoute>
-        } />
-        
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
+        {/* Floating JARVIS - Always visible on protected routes */}
+        {token && <FloatingJarvis />}
+
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          
+          {/* Protected Routes */}
+          <Route path="/" element={
+            <ProtectedRoute>
+              <PalPage />
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/jarvis" element={
+            <ProtectedRoute>
+              <JarvisPage />
+            </ProtectedRoute>
+          } />
+          
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </JarvisProvider>
   );
 }
 
