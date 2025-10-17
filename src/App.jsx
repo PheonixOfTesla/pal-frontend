@@ -1,4 +1,4 @@
-// src/App.jsx - WITH WebSocket + Proactive Alerts
+// src/App.jsx - SINGLE PAGE APP WITH VOICE-DRIVEN OVERLAYS
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
@@ -8,12 +8,6 @@ import wsManager from './services/websocket';
 import LoginPage from './pages/LoginPage';
 import PalPage from './pages/PalPage';
 import JarvisPage from './pages/JarvisPage';
-import MercuryPage from './pages/MercuryPage';
-import VenusPage from './pages/VenusPage';
-import EarthPage from './pages/EarthPage';
-import MarsPage from './pages/MarsPage';
-import JupiterPage from './pages/JupiterPage';
-import SaturnPage from './pages/SaturnPage';
 
 // Global Components
 import ProactiveAlert from './components/notifications/ProactiveAlert';
@@ -37,6 +31,17 @@ function App() {
       // Listen for proactive interventions
       const unsubscribe = wsManager.on('intervention', (data) => {
         console.log('🚨 Proactive intervention received:', data);
+        
+        // Speak the alert
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(
+            `Alert: ${data.message}`
+          );
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          speechSynthesis.speak(utterance);
+        }
+        
         setProactiveAlert(data);
       });
 
@@ -79,42 +84,6 @@ function App() {
         <Route path="/jarvis" element={
           <ProtectedRoute>
             <JarvisPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/mercury" element={
-          <ProtectedRoute>
-            <MercuryPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/venus" element={
-          <ProtectedRoute>
-            <VenusPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/earth" element={
-          <ProtectedRoute>
-            <EarthPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/mars" element={
-          <ProtectedRoute>
-            <MarsPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/jupiter" element={
-          <ProtectedRoute>
-            <JupiterPage />
-          </ProtectedRoute>
-        } />
-        
-        <Route path="/saturn" element={
-          <ProtectedRoute>
-            <SaturnPage />
           </ProtectedRoute>
         } />
         
