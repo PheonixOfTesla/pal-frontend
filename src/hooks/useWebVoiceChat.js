@@ -1,4 +1,4 @@
-// src/hooks/useWebVoiceChat.js - PRODUCTION VOICE WEBSOCKET
+// src/hooks/useWebVoiceChat.js - ENHANCED Voice Chat with Context
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 
@@ -11,7 +11,7 @@ export function useWebVoiceChat() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState(null);
-  const [phoenixState, setPhoenixState] = useState('idle'); // idle, listening, thinking, speaking, alert
+  const [phoenixState, setPhoenixState] = useState('idle');
 
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -20,9 +20,6 @@ export function useWebVoiceChat() {
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
 
-  /**
-   * Connect to Phoenix voice WebSocket
-   */
   const connect = useCallback(() => {
     if (!token || !user) {
       setError('Not authenticated');
@@ -58,7 +55,6 @@ export function useWebVoiceChat() {
         setIsConnected(false);
         setPhoenixState('idle');
         
-        // Auto-reconnect after 3 seconds
         setTimeout(() => {
           if (token && user) {
             connect();
@@ -74,9 +70,6 @@ export function useWebVoiceChat() {
     }
   }, [token, user]);
 
-  /**
-   * Handle messages from server
-   */
   const handleServerMessage = async (data) => {
     switch (data.type) {
       case 'session_ready':
@@ -85,7 +78,6 @@ export function useWebVoiceChat() {
         break;
 
       case 'audio':
-        // Receive audio from Phoenix
         audioQueueRef.current.push(data.audio);
         if (!isPlayingRef.current) {
           await playAudioQueue();
@@ -93,7 +85,6 @@ export function useWebVoiceChat() {
         break;
 
       case 'transcript':
-        // Phoenix's spoken response transcript
         setTranscript(data.text);
         break;
 
@@ -109,12 +100,12 @@ export function useWebVoiceChat() {
 
       case 'response_complete':
         setIsSpeaking(false);
-        setTranscript('');
+        // Keep transcript for 5 seconds
+        setTimeout(() => setTranscript(''), 5000);
         setPhoenixState('idle');
         break;
 
       case 'intervention':
-        // Proactive alert from Phoenix
         setPhoenixState('alert');
         setTranscript(data.message);
         break;
@@ -126,9 +117,6 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Start recording audio
-   */
   const startRecording = async () => {
     if (!isConnected) {
       setError('Not connected to voice server');
@@ -145,7 +133,6 @@ export function useWebVoiceChat() {
         } 
       });
 
-      // Initialize audio context
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
           sampleRate: 24000
@@ -168,12 +155,10 @@ export function useWebVoiceChat() {
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         await sendAudioToServer(audioBlob);
-        
-        // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorder.start(100);
       mediaRecorderRef.current = mediaRecorder;
       
       setIsRecording(true);
@@ -188,9 +173,6 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Stop recording audio
-   */
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -200,12 +182,8 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Send audio to server
-   */
   const sendAudioToServer = async (audioBlob) => {
     try {
-      // Convert blob to base64
       const reader = new FileReader();
       reader.readAsDataURL(audioBlob);
       reader.onloadend = () => {
@@ -217,7 +195,6 @@ export function useWebVoiceChat() {
             audio: base64Audio
           }));
 
-          // Signal end of audio
           wsRef.current.send(JSON.stringify({
             type: 'audio_end'
           }));
@@ -229,9 +206,6 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Play audio queue from Phoenix
-   */
   const playAudioQueue = async () => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
@@ -243,7 +217,6 @@ export function useWebVoiceChat() {
     try {
       const base64Audio = audioQueueRef.current.shift();
       
-      // Decode base64 to audio
       const audioData = atob(base64Audio);
       const arrayBuffer = new ArrayBuffer(audioData.length);
       const view = new Uint8Array(arrayBuffer);
@@ -252,7 +225,6 @@ export function useWebVoiceChat() {
         view[i] = audioData.charCodeAt(i);
       }
 
-      // Decode and play
       const audioContext = audioContextRef.current || new AudioContext();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
       
@@ -261,7 +233,6 @@ export function useWebVoiceChat() {
       source.connect(audioContext.destination);
       
       source.onended = () => {
-        // Play next in queue
         playAudioQueue();
       };
 
@@ -273,16 +244,12 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Interrupt Phoenix (cancel current response)
-   */
   const interrupt = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'interrupt'
       }));
       
-      // Clear audio queue
       audioQueueRef.current = [];
       isPlayingRef.current = false;
       setIsSpeaking(false);
@@ -290,9 +257,6 @@ export function useWebVoiceChat() {
     }
   };
 
-  /**
-   * Disconnect voice WebSocket
-   */
   const disconnect = () => {
     if (wsRef.current) {
       wsRef.current.close();
@@ -315,17 +279,11 @@ export function useWebVoiceChat() {
     setPhoenixState('idle');
   };
 
-  /**
-   * Auto-connect on mount
-   */
   useEffect(() => {
     connect();
     return () => disconnect();
   }, [connect]);
 
-  /**
-   * Request notification permissions
-   */
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
