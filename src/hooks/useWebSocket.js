@@ -6,51 +6,96 @@ export function useWebSocket(channel, onMessage) {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
   const token = useAuthStore(state => state.token);
+  const user = useAuthStore(state => state.user);
 
   const connect = useCallback(() => {
-    if (!token) return;
+    if (!token || !user) {
+      console.log('⚠️ No token or user - skipping WebSocket connection');
+      return;
+    }
 
-    const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:5001';
-    const ws = new WebSocket(`${wsUrl}?token=${token}`);
-
-    ws.onopen = () => {
-      console.log(`✅ WebSocket connected to ${channel}`);
-      setIsConnected(true);
-      setError(null);
+    try {
+      // Production WebSocket URL - NO LOCALHOST FALLBACK
+      const wsUrl = process.env.REACT_APP_WS_URL || 'wss://pal-backend-production.up.railway.app/ws';
       
-      // Subscribe to channel
-      ws.send(JSON.stringify({ type: 'subscribe', channel }));
-    };
+      console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.channel === channel && onMessage) {
-          onMessage(data.payload);
+      ws.onopen = () => {
+        console.log(`✅ WebSocket connected`);
+        setIsConnected(true);
+        setError(null);
+        
+        // Authenticate with token
+        ws.send(JSON.stringify({ 
+          type: 'auth', 
+          token 
+        }));
+
+        // Subscribe to channel
+        if (channel) {
+          ws.send(JSON.stringify({ 
+            type: 'subscribe', 
+            channel 
+          }));
         }
-      } catch (err) {
-        console.error('WebSocket message parse error:', err);
-      }
-    };
+      };
 
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-      setError('Connection error');
-    };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Handle auth response
+          if (data.type === 'auth_success') {
+            console.log('✅ WebSocket authenticated:', data.userId);
+          }
+          
+          if (data.type === 'auth_error') {
+            console.error('❌ WebSocket auth failed:', data.message);
+            setError('Authentication failed');
+            ws.close();
+            return;
+          }
 
-    ws.onclose = () => {
-      console.log('❌ WebSocket disconnected');
-      setIsConnected(false);
-      
-      // Attempt reconnection after 3 seconds
-      setTimeout(() => {
-        console.log('🔄 Attempting to reconnect...');
-        connect();
-      }, 3000);
-    };
+          // Handle subscribed confirmation
+          if (data.type === 'subscribed') {
+            console.log(`✅ Subscribed to channel: ${data.channel}`);
+          }
 
-    wsRef.current = ws;
-  }, [channel, token, onMessage]);
+          // Pass messages to callback
+          if (onMessage) {
+            onMessage(data);
+          }
+        } catch (err) {
+          console.error('WebSocket message parse error:', err);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        setError('Connection error');
+      };
+
+      ws.onclose = () => {
+        console.log('❌ WebSocket disconnected');
+        setIsConnected(false);
+        
+        // Attempt reconnection after 3 seconds if we have auth
+        if (token && user) {
+          setTimeout(() => {
+            console.log('🔄 Attempting to reconnect...');
+            connect();
+          }, 3000);
+        }
+      };
+
+      wsRef.current = ws;
+
+    } catch (err) {
+      console.error('WebSocket connection error:', err);
+      setError(err.message);
+    }
+  }, [channel, token, user, onMessage]);
 
   useEffect(() => {
     connect();
@@ -64,8 +109,18 @@ export function useWebSocket(channel, onMessage) {
   const send = useCallback((data) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
+    } else {
+      console.warn('WebSocket not connected, cannot send message');
     }
   }, []);
 
-  return { isConnected, error, send };
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setIsConnected(false);
+  }, []);
+
+  return { isConnected, error, send, disconnect };
 }
