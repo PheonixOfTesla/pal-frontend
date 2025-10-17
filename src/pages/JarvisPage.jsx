@@ -1,21 +1,34 @@
-// src/pages/JarvisPage.jsx - WITH WORKING VOICE CHAT
+// src/pages/JarvisPage.jsx - TRUE JARVIS INTERFACE
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Flame, ArrowLeft, Mic } from 'lucide-react';
+import { Flame, Mic, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useDataStore } from '../store/dataStore';
 import { intelligenceService } from '../services/api';
-import VoiceChatPanel from '../components/voice/VoiceChatPanel';
+import { useWebVoiceChat } from '../hooks/useWebVoiceChat';
+import PhoenixAvatar from '../components/voice/PhoenixAvatar';
+import WaveformVisualizer from '../components/voice/WaveformVisualizer';
+import DataOverlay from '../components/jarvis/DataOverlay';
+import VoiceCommandRouter from '../components/jarvis/VoiceCommandRouter';
 
 export default function JarvisPage() {
-  const navigate = useNavigate();
   const user = useAuthStore(state => state.user);
-  const { intelligenceData, setIntelligenceData, loading, setLoading } = useDataStore();
+  const { intelligenceData, setIntelligenceData, setLoading } = useDataStore();
   
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [showVoiceChat, setShowVoiceChat] = useState(false);
+  const {
+    isConnected,
+    isRecording,
+    isSpeaking,
+    phoenixState,
+    transcript,
+    error,
+    startRecording,
+    stopRecording
+  } = useWebVoiceChat();
 
-  // Fetch data on mount
+  const [activeOverlay, setActiveOverlay] = useState(null);
+  const [overlayData, setOverlayData] = useState(null);
+
+  // Fetch intelligence data on mount
   useEffect(() => {
     const fetchData = async () => {
       if (!user?._id) return;
@@ -36,289 +49,299 @@ export default function JarvisPage() {
     fetchData();
   }, [user, setIntelligenceData, setLoading]);
 
-  // Simulate speaking when entering
-  useEffect(() => {
-    setIsSpeaking(true);
-    const timer = setTimeout(() => setIsSpeaking(false), 3000);
-    return () => clearTimeout(timer);
-  }, []);
+  // Handle voice command events
+  const handleShowOverlay = (overlayType, data) => {
+    setActiveOverlay(overlayType);
+    setOverlayData(data);
+  };
 
-  const metrics = intelligenceData?.metrics || {};
+  const handleCloseOverlay = () => {
+    setActiveOverlay(null);
+    setOverlayData(null);
+  };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#000', position: 'relative', overflow: 'hidden' }}>
+    <div style={{
+      minHeight: '100vh',
+      background: '#000',
+      position: 'relative',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       
-      {/* Animated background grid */}
+      {/* Animated grid background */}
       <div style={{
         position: 'absolute',
         inset: 0,
-        opacity: 0.2,
+        opacity: 0.1,
         backgroundImage: 'linear-gradient(cyan 1px, transparent 1px), linear-gradient(90deg, cyan 1px, transparent 1px)',
-        backgroundSize: '50px 50px'
-      }}></div>
+        backgroundSize: '50px 50px',
+        animation: 'gridMove 20s linear infinite'
+      }} />
 
-      {/* Voice Chat Overlay */}
-      {showVoiceChat && (
-        <VoiceChatPanel onClose={() => setShowVoiceChat(false)} />
-      )}
-
-      {/* Header */}
+      {/* Radial glow from center */}
       <div style={{
-        position: 'relative',
-        zIndex: 10,
-        padding: '24px',
-        borderBottom: '1px solid rgba(6,182,212,0.3)',
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '800px',
+        height: '800px',
+        background: `radial-gradient(circle, ${
+          phoenixState === 'alert' ? 'rgba(239,68,68,0.2)' :
+          phoenixState === 'speaking' ? 'rgba(16,185,129,0.2)' :
+          'rgba(6,182,212,0.2)'
+        } 0%, transparent 70%)`,
+        pointerEvents: 'none',
+        transition: 'all 0.5s ease'
+      }} />
+
+      {/* Voice Command Router */}
+      <VoiceCommandRouter 
+        transcript={transcript}
+        intelligenceData={intelligenceData}
+        onShowOverlay={handleShowOverlay}
+      />
+
+      {/* Main Content - Phoenix Avatar */}
+      <div style={{
+        flex: 1,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'space-between'
-      }}>
-        <button
-          onClick={() => navigate('/')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'none',
-            border: 'none',
-            color: '#06b6d4',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
-        >
-          <ArrowLeft size={20} />
-          <span>Back to Phoenix</span>
-        </button>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Flame size={24} color="#f97316" style={{ animation: 'pulse 2s infinite' }} />
-          <span style={{ color: '#06b6d4', fontWeight: 'bold', fontSize: '18px' }}>
-            Phoenix Active
-          </span>
-        </div>
-
-        <div style={{ fontSize: '12px', color: 'rgba(6,182,212,0.6)', fontFamily: 'monospace' }}>
-          {new Date().toLocaleTimeString()}
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div style={{
+        justifyContent: 'center',
         position: 'relative',
         zIndex: 10,
-        padding: '24px',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '24px',
-        height: 'calc(100vh - 180px)'
+        padding: '40px'
       }}>
         
-        {/* LEFT COLUMN - Vitals */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Date Circle */}
+        {/* Phoenix Avatar */}
+        <div style={{ marginBottom: '40px' }}>
+          <PhoenixAvatar state={phoenixState} />
+        </div>
+
+        {/* Status Text */}
+        <h1 style={{
+          fontSize: '2rem',
+          fontWeight: 'bold',
+          color: '#06b6d4',
+          marginBottom: '16px',
+          textShadow: '0 0 20px rgba(6,182,212,0.6)',
+          textAlign: 'center'
+        }}>
+          {phoenixState === 'listening' && 'Listening...'}
+          {phoenixState === 'thinking' && 'Processing...'}
+          {phoenixState === 'speaking' && 'Phoenix Speaking...'}
+          {phoenixState === 'alert' && 'Alert!'}
+          {phoenixState === 'idle' && `Hello, ${user?.name?.split(' ')[0] || 'there'}`}
+        </h1>
+
+        {/* Subtitle */}
+        <p style={{
+          fontSize: '1rem',
+          color: 'rgba(6,182,212,0.7)',
+          textAlign: 'center',
+          marginBottom: '40px',
+          maxWidth: '600px'
+        }}>
+          {phoenixState === 'idle' && 'Ask me anything about your health, training, schedule, goals, or finances.'}
+          {phoenixState === 'listening' && 'I\'m listening...'}
+          {phoenixState === 'thinking' && 'Analyzing your data...'}
+          {phoenixState === 'speaking' && 'Let me share what I found...'}
+        </p>
+
+        {/* Waveform Visualizer */}
+        {(isRecording || isSpeaking) && (
+          <div style={{ width: '100%', maxWidth: '600px', marginBottom: '40px' }}>
+            <WaveformVisualizer isActive={isRecording || isSpeaking} />
+          </div>
+        )}
+
+        {/* Transcript Display */}
+        {transcript && (
           <div style={{
             background: 'rgba(6,182,212,0.05)',
             border: '1px solid rgba(6,182,212,0.3)',
             borderRadius: '12px',
             padding: '24px',
-            textAlign: 'center'
+            maxWidth: '700px',
+            width: '100%',
+            marginBottom: '40px',
+            animation: 'fadeIn 0.3s ease-out'
           }}>
-            <div style={{ fontSize: '14px', color: '#06b6d4', marginBottom: '8px' }}>
-              {new Date().toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-            </div>
-            <div style={{ fontSize: '48px', fontWeight: 'bold', color: '#06b6d4' }}>
-              {new Date().getDate()}
-            </div>
-            <div style={{ fontSize: '12px', color: 'rgba(6,182,212,0.6)' }}>
-              {new Date().toLocaleDateString('en-US', { weekday: 'long' })}
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div style={{
-            background: 'rgba(6,182,212,0.05)',
-            border: '1px solid rgba(6,182,212,0.3)',
-            borderRadius: '12px',
-            padding: '20px'
-          }}>
-            <div style={{ fontSize: '12px', color: '#06b6d4', marginBottom: '16px' }}>VITALS</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <div style={{ fontSize: '10px', color: 'rgba(6,182,212,0.6)' }}>Steps</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#06b6d4' }}>
-                  {loading ? '...' : (metrics.steps || 0).toLocaleString()}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'rgba(6,182,212,0.6)' }}>Sleep</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#06b6d4' }}>
-                  {loading ? '...' : `${Math.floor((metrics.sleep || 0) / 60)}h ${(metrics.sleep || 0) % 60}m`}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'rgba(6,182,212,0.6)' }}>Recovery</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#06b6d4' }}>
-                  {loading ? '...' : (metrics.recoveryScore || 0)}%
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* CENTER COLUMN - Main Display */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          
-          {/* Central Hub */}
-          <div style={{ position: 'relative', width: '256px', height: '256px', marginBottom: '32px' }}>
-            {/* Outer rings */}
-            <svg style={{
-              position: 'absolute',
-              inset: 0,
-              animation: 'spin 20s linear infinite'
-            }} viewBox="0 0 200 200">
-              <circle cx="100" cy="100" r="95" fill="none" stroke="cyan" strokeWidth="1" opacity="0.2"/>
-              <circle cx="100" cy="100" r="85" fill="none" stroke="cyan" strokeWidth="1" opacity="0.3"/>
-            </svg>
-            
-            {/* Main circle */}
             <div style={{
-              position: 'absolute',
-              inset: 0,
+              fontSize: '14px',
+              color: '#06b6d4',
+              fontWeight: 600,
+              marginBottom: '12px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              gap: '8px'
             }}>
+              <Flame size={16} />
+              Phoenix:
+            </div>
+            <div style={{
+              fontSize: '16px',
+              color: '#fff',
+              lineHeight: 1.6
+            }}>
+              {transcript}
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div style={{
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: '8px',
+            padding: '16px',
+            maxWidth: '600px',
+            width: '100%',
+            marginBottom: '24px',
+            color: '#ef4444',
+            textAlign: 'center'
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Voice Button */}
+        <button
+          onMouseDown={startRecording}
+          onMouseUp={stopRecording}
+          onTouchStart={startRecording}
+          onTouchEnd={stopRecording}
+          disabled={!isConnected}
+          style={{
+            width: '120px',
+            height: '120px',
+            borderRadius: '50%',
+            background: isRecording 
+              ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+              : !isConnected
+              ? 'rgba(100,116,139,0.3)'
+              : 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
+            border: 'none',
+            boxShadow: isRecording 
+              ? '0 0 60px rgba(239,68,68,0.8), 0 0 100px rgba(239,68,68,0.4)'
+              : '0 8px 32px rgba(6,182,212,0.4)',
+            cursor: !isConnected ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.3s ease',
+            transform: isRecording ? 'scale(1.1)' : 'scale(1)',
+            position: 'relative'
+          }}
+        >
+          {/* Ripple effect when recording */}
+          {isRecording && (
+            <>
               <div style={{
-                width: '128px',
-                height: '128px',
+                position: 'absolute',
+                inset: -10,
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: isSpeaking ? '0 0 60px rgba(6,182,212,0.8)' : '0 0 30px rgba(6,182,212,0.5)',
-                transform: isSpeaking ? 'scale(1.1)' : 'scale(1)',
-                transition: 'all 0.3s'
-              }}>
-                <Flame size={64} color="#fff" />
-              </div>
-            </div>
-          </div>
+                border: '3px solid #ef4444',
+                opacity: 0.6,
+                animation: 'ripple 1.5s infinite'
+              }} />
+              <div style={{
+                position: 'absolute',
+                inset: -20,
+                borderRadius: '50%',
+                border: '2px solid #ef4444',
+                opacity: 0.4,
+                animation: 'ripple 1.5s infinite 0.5s'
+              }} />
+            </>
+          )}
+          
+          <Mic size={48} color={!isConnected ? '#64748b' : '#fff'} />
+        </button>
 
-          {/* Planet Labels */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '12px', fontFamily: 'monospace' }}>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/mercury')}>
-              Mercury<br/>Vitals
-            </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/venus')}>
-              Venus<br/>Training
-            </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/earth')}>
-              Earth<br/>Schedule
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '12px', fontFamily: 'monospace', marginTop: '8px' }}>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/mars')}>
-              Mars<br/>Goals
-            </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/jupiter')}>
-              Jupiter<br/>Wealth
-            </div>
-            <div style={{ textAlign: 'center', color: '#06b6d4', cursor: 'pointer' }} onClick={() => navigate('/saturn')}>
-              Saturn<br/>Legacy
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN - System Tools */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{
-            background: 'rgba(6,182,212,0.05)',
-            border: '1px solid rgba(6,182,212,0.3)',
-            borderRadius: '12px',
-            padding: '20px'
-          }}>
-            <div style={{ fontSize: '12px', color: '#06b6d4', marginBottom: '12px' }}>SYSTEM STATUS</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', fontFamily: 'monospace' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#06b6d4' }}>
-                <div style={{ width: '8px', height: '8px', background: '#06b6d4', borderRadius: '50%' }}></div>
-                <span>All Systems Online</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#06b6d4' }}>
-                <div style={{ width: '8px', height: '8px', background: '#06b6d4', borderRadius: '50%' }}></div>
-                <span>AI Engine Active</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#06b6d4' }}>
-                <div style={{ width: '8px', height: '8px', background: '#06b6d4', borderRadius: '50%' }}></div>
-                <span>Data Synced</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            background: 'rgba(6,182,212,0.05)',
-            border: '1px solid rgba(6,182,212,0.3)',
-            borderRadius: '12px',
-            padding: '16px'
-          }}>
-            <div style={{ fontSize: '12px', color: '#06b6d4', fontWeight: 'bold', marginBottom: '8px' }}>
-              Quick Stats
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px', fontFamily: 'monospace', color: 'rgba(6,182,212,0.6)' }}>
-              <div>• Workouts: {metrics.workoutsThisWeek || 0} this week</div>
-              <div>• Goals: {metrics.activeGoalsCount || 0} active</div>
-              <div>• Training Load: {metrics.trainingLoad || 0}%</div>
-            </div>
-          </div>
-        </div>
+        <p style={{
+          marginTop: '24px',
+          fontSize: '14px',
+          color: 'rgba(6,182,212,0.6)',
+          textAlign: 'center'
+        }}>
+          {isRecording ? 'Release to send' : 'Hold to talk to Phoenix'}
+        </p>
       </div>
 
-      {/* Bottom Voice Button */}
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20 }}>
+      {/* Data Overlay */}
+      {activeOverlay && (
+        <DataOverlay
+          type={activeOverlay}
+          data={overlayData}
+          onClose={handleCloseOverlay}
+        />
+      )}
+
+      {/* Connection Status */}
+      <div style={{
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '12px 20px',
+        background: 'rgba(0,0,0,0.8)',
+        backdropFilter: 'blur(10px)',
+        border: `1px solid ${isConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+        borderRadius: '24px',
+        fontSize: '12px',
+        color: isConnected ? '#10b981' : '#ef4444',
+        fontFamily: 'monospace',
+        zIndex: 50
+      }}>
         <div style={{
-          background: 'rgba(0,0,0,0.8)',
-          backdropFilter: 'blur(10px)',
-          borderTop: '1px solid rgba(6,182,212,0.3)',
-          padding: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '16px'
-        }}>
-          <span style={{ color: '#06b6d4', fontSize: '14px', fontFamily: 'monospace' }}>
-            Talk to Phoenix
-          </span>
-          <button
-            onClick={() => setShowVoiceChat(true)}
-            style={{
-              padding: '12px',
-              borderRadius: '50%',
-              background: 'rgba(6,182,212,0.2)',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(6,182,212,0.4)';
-              e.currentTarget.style.transform = 'scale(1.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(6,182,212,0.2)';
-              e.currentTarget.style.transform = 'scale(1)';
-            }}
-          >
-            <Mic size={20} color="#06b6d4" />
-          </button>
-        </div>
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          background: isConnected ? '#10b981' : '#ef4444',
+          animation: isConnected ? 'pulse 2s infinite' : 'none'
+        }} />
+        {isConnected ? 'PHOENIX ONLINE' : 'CONNECTING...'}
+      </div>
+
+      {/* Time Display */}
+      <div style={{
+        position: 'fixed',
+        top: '24px',
+        right: '24px',
+        fontSize: '12px',
+        color: 'rgba(6,182,212,0.6)',
+        fontFamily: 'monospace',
+        zIndex: 50
+      }}>
+        {new Date().toLocaleTimeString()}
       </div>
 
       <style>{`
         @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.05); }
         }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+
+        @keyframes ripple {
+          0% { transform: scale(1); opacity: 0.8; }
+          100% { transform: scale(1.8); opacity: 0; }
+        }
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes gridMove {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(50px); }
         }
       `}</style>
     </div>
